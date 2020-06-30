@@ -1,31 +1,34 @@
 import tensorflow as tf
+import numpy as np
 
 
 # Note that this will apply 'softmax' to the logits.
-def loss_log_likelihood(x, y, event):
+def loss_log_likelihood(pred, mask, event):
     I_1 = tf.math.sign(event)
-
+    I_1 = tf.dtypes.cast(I_1, tf.float64)
     #for uncenosred: log P(T=t,K=k|x)
-    tmp1 = tf.math.reduce_sum(tf.math.reduce_sum(x * y, reduction_indices=2), reduction_indices=1, keep_dims=True)
-    tmp1 = I_1 * log(tmp1)
+    tmp1 = tf.math.reduce_sum(tf.math.reduce_sum(mask * pred, reduction_indices=2), reduction_indices=1, keep_dims=True)
+    tmp1 = tf.math.multiply(I_1, tf.math.log(tmp1))
 
     #for censored: log \sum P(T>t|x)
-    tmp2 = tf.math.reduce_sum(tf.math.reduce_sum(x, y, reduction_indices=2), reduction_indices=1, keep_dims=True)
-    tmp2 = (1. - I_1) * log(tmp2)
+    tmp2 = tf.math.reduce_sum(tf.math.reduce_sum(mask * pred, reduction_indices=2), reduction_indices=1, keep_dims=True)
+    tmp2 = (1. - I_1) * tf.math.log(tmp2)
 
     return - tf.math.reduce_mean(tmp1 + 1.0*tmp2)
 
 # Accuracy metric.
-def loss_ranking(time, event, num_event, num_category, x, y):
-    sigma1 = tf.constant(0.1, dtype=tf.float32)
+def loss_ranking(pred, mask, time, event, num_event, num_category):
+    sigma1 = tf.constant(0.1, dtype=tf.float64)
+    time  = tf.cast(time, dtype=tf.float64)
+    event = tf.cast(event, dtype=tf.float64)
     eta = []
     for e in range(num_event):
-        one_vector = tf.ones_like(time, dtype=tf.float32)
-        I_2 = tf.cast(tf.math.equal(event, e+1), dtype = tf.float32) #indicator for event
+        one_vector = tf.ones_like(time, dtype=tf.float64)
+        I_2 = tf.cast(tf.math.equal(event, e+1), dtype = tf.float64) #indicator for event
         I_2 = tf.linalg.diag(tf.squeeze(I_2))
-        tmp_e = tf.reshape(tf.slice(y, [0, e, 0], [-1, 1, -1]), [-1, num_category]) #event specific joint prob.
+        tmp_e = tf.reshape(tf.slice(pred, [0, e, 0], [-1, 1, -1]), [-1, num_category]) #event specific joint prob.
 
-        R = tf.linalg.matmul(tmp_e, tf.transpose(x)) #no need to divide by each individual dominator
+        R = tf.linalg.matmul(tmp_e, tf.transpose(mask)) #no need to divide by each individual dominator
         # r_{ij} = risk of i-th pat based on j-th time-condition (last meas. time ~ event time) , i.e. r_i(T_{j})
 
         diag_R = tf.reshape(tf.linalg.diag_part(R), [-1, 1])
@@ -46,14 +49,14 @@ def loss_ranking(time, event, num_event, num_category, x, y):
 
     return tf.math.reduce_sum(eta)
 
-def loss_calibration(time, event, num_event, num_category, x, y):
+def loss_calibration(pred, mask, time, event, num_event, num_category):
     eta = []
     for e in range(num_event):
-        one_vector = tf.ones_like(time, dtype=tf.float32)
-        I_2 = tf.cast(tf.math.equal(event, e+1), dtype = tf.float32) #indicator for event
-        tmp_e = tf.reshape(tf.slice(y, [0, e, 0], [-1, 1, -1]), [-1, num_category]) #event specific joint prob.
+        one_vector = tf.ones_like(time, dtype=tf.float64)
+        I_2 = tf.cast(tf.math.equal(event, e+1), dtype = tf.float64) #indicator for event
+        tmp_e = tf.reshape(tf.slice(pred, [0, e, 0], [-1, 1, -1]), [-1, num_category]) #event specific joint prob.
 
-        r = tf.math.reduce_sum(tmp_e * x, axis=0) #no need to divide by each individual dominator
+        r = tf.math.reduce_sum(tmp_e * mask, axis=0) #no need to divide by each individual dominator
         tmp_eta = tf.math.reduce_mean((r - I_2)**2, reduction_indices=1, keep_dims=True)
 
         eta.append(tmp_eta)
