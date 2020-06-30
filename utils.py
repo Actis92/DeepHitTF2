@@ -1,4 +1,5 @@
 import numpy as np
+from lifelines import KaplanMeierFitter
 
 
 ### MASK FUNCTIONS
@@ -56,7 +57,7 @@ def get_random_hyperparameters():
     gamma = [0.1, 0.5, 1.0, 3.0, 5.0] #gamma values -> calibration loss
 
     parameters = {'mb_size': batch_size[np.random.randint(len(batch_size))],
-                 'iteration': 50000,
+                 'iteration': 5000,
                  'dropout': 0.4,
                  'lr_train': 1e-4,
                  'h_dim_shared': nodes[np.random.randint(len(nodes))],
@@ -70,3 +71,57 @@ def get_random_hyperparameters():
                  }
     
     return parameters
+
+def CensoringProb(Y, T):
+
+    T = T.reshape([-1]) # (N,) - np array
+    Y = Y.reshape([-1]) # (N,) - np array
+
+    kmf = KaplanMeierFitter()
+    kmf.fit(T, event_observed=(Y==0).astype(int))  # censoring prob = survival probability of event "censoring"
+    G = np.asarray(kmf.survival_function_.reset_index()).transpose()
+    G[1, G[1, :] == 0] = G[1, G[1, :] != 0][-1]  #fill 0 with ZoH (to prevent nan values)
+    
+    return G
+
+def weighted_c_index(T_train, Y_train, Prediction, T_test, Y_test, Time):
+    '''
+        This is a cause-specific c(t)-index
+        - Prediction      : risk at Time (higher --> more risky)
+        - Time_survival   : survival/censoring time
+        - Death           :
+            > 1: death
+            > 0: censored (including death from other cause)
+        - Time            : time of evaluation (time-horizon when evaluating C-index)
+    '''
+    G = CensoringProb(Y_train, T_train)
+
+    N = len(Prediction)
+    A = np.zeros((N,N))
+    Q = np.zeros((N,N))
+    N_t = np.zeros((N,N))
+    Num = 0
+    Den = 0
+    for i in range(N):
+        tmp_idx = np.where(G[0,:] >= T_test[i])[0]
+
+        if len(tmp_idx) == 0:
+            W = (1./G[1, -1])**2
+        else:
+            W = (1./G[1, tmp_idx[0]])**2
+
+        A[i, np.where(T_test[i] < T_test)] = 1. * W
+        Q[i, np.where(Prediction[i] > Prediction)] = 1. # give weights
+
+        if (T_test[i]<=Time and Y_test[i]==1):
+            N_t[i,:] = 1.
+
+    Num  = np.sum(((A)*N_t)*Q)
+    Den  = np.sum((A)*N_t)
+
+    if Num == 0 and Den == 0:
+        result = -1 # not able to compute c-index!
+    else:
+        result = float(Num/Den)
+
+    return result

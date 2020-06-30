@@ -6,12 +6,11 @@ import numpy as np
 def loss_log_likelihood(pred, mask, event):
     I_1 = tf.math.sign(event)
     I_1 = tf.dtypes.cast(I_1, tf.float64)
-    #for uncenosred: log P(T=t,K=k|x)
-    tmp1 = tf.math.reduce_sum(tf.math.reduce_sum(mask * pred, reduction_indices=2), reduction_indices=1, keep_dims=True)
+    tmp1 = tf.math.reduce_sum(tf.math.reduce_sum(mask * pred, axis=2), axis=1, keepdims=True)
     tmp1 = tf.math.multiply(I_1, tf.math.log(tmp1))
 
     #for censored: log \sum P(T>t|x)
-    tmp2 = tf.math.reduce_sum(tf.math.reduce_sum(mask * pred, reduction_indices=2), reduction_indices=1, keep_dims=True)
+    tmp2 = tf.math.reduce_sum(tf.math.reduce_sum(mask * pred, axis=2), axis=1, keepdims=True)
     tmp2 = (1. - I_1) * tf.math.log(tmp2)
 
     return - tf.math.reduce_mean(tmp1 + 1.0*tmp2)
@@ -41,11 +40,11 @@ def loss_ranking(pred, mask, time, event, num_event, num_category):
 
         T = tf.linalg.matmul(I_2, T) # only remains T_{ij}=1 when event occured for subject i
 
-        tmp_eta = tf.math.reduce_mean(T * tf.math.exp(-R/sigma1), reduction_indices=1, keep_dims=True)
+        tmp_eta = tf.math.reduce_mean(T * tf.math.exp(-R/sigma1), axis=1, keepdims=True)
 
         eta.append(tmp_eta)
     eta = tf.stack(eta, axis=1) #stack referenced on subjects
-    eta = tf.math.reduce_mean(tf.reshape(eta, [-1, num_event]), reduction_indices=1, keep_dims=True)
+    eta = tf.math.reduce_mean(tf.reshape(eta, [-1, num_event]), axis=1, keepdims=True)
 
     return tf.math.reduce_sum(eta)
 
@@ -57,10 +56,10 @@ def loss_calibration(pred, mask, time, event, num_event, num_category):
         tmp_e = tf.reshape(tf.slice(pred, [0, e, 0], [-1, 1, -1]), [-1, num_category]) #event specific joint prob.
 
         r = tf.math.reduce_sum(tmp_e * mask, axis=0) #no need to divide by each individual dominator
-        tmp_eta = tf.math.reduce_mean((r - I_2)**2, reduction_indices=1, keep_dims=True)
+        tmp_eta = tf.math.reduce_mean((r - I_2)**2, axis=1, keepdims=True)
 
         eta.append(tmp_eta)
     eta = tf.stack(eta, axis=1) #stack referenced on subjects
-    eta = tf.math.reduce_mean(tf.reshape(eta, [-1, num_event]), reduction_indices=1, keep_dims=True)
+    eta = tf.math.reduce_mean(tf.reshape(eta, [-1, num_event]), axis=1, keepdims=True)
 
     return tf.math.reduce_sum(eta) #sum over num_Events
